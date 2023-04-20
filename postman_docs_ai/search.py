@@ -1,5 +1,4 @@
 import os
-from typing import List
 
 import dotenv
 import openai
@@ -8,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from qdrant_client import QdrantClient
+from starlette.responses import StreamingResponse
 
 dotenv.load_dotenv()
 
@@ -39,7 +39,9 @@ async def search(request: SearchRequest):
     context_matches = search_qdrant(query_embedding)
     context = build_context_string(context_matches)
 
-    return get_openai_completion(request.query.strip(), context)
+    response = get_openai_completion(request.query.strip(), context)
+
+    return StreamingResponse(response)
 
 
 def get_embedding(text):
@@ -77,7 +79,7 @@ def build_context_string(context_matches):
     return context
 
 
-def get_openai_completion(query, context) -> str:
+def get_openai_completion(query, context):
     messages = [
         {
             "role": "system",
@@ -107,9 +109,13 @@ You must also follow the below rules when answering:
         model="gpt-3.5-turbo",
         messages=messages,
         temperature=0.5,
+        stream=True,
     )
 
-    return response.choices[0].message.content
+    # return response.choices[0].message.content
+    for chunk in response:
+        if chunk.choices[0].delta.get("content"):
+            yield chunk.choices[0].delta.content
 
 
 if __name__ == "__main__":
